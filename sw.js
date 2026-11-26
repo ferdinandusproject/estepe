@@ -6,7 +6,7 @@
  *  - Font & pustaka CDN (ExcelJS/jsPDF/QR) di-cache saat runtime agar ekspor berikutnya cepat.
  *  Naikkan VERSI setiap rilis frontend agar pengguna menerima pembaruan.
  * ===================================================================== */
-var VERSI = 'estepel-v3.0.0';
+var VERSI = 'estepel-v3.0.1';
 var STATIS = VERSI + '-statis', RUNTIME = 'estepel-runtime-v1';
 var ASET = [
   './', './index.html', './verify.html', './manifest.json',

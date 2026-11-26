@@ -54,7 +54,8 @@ var API = (function () {
     }).catch(function (e) {
       var baca = body.action === 'batch' || BACA.test(body.action);
       if ((coba || 0) < 1 && baca && e.name !== 'AbortError') return new Promise(function (res) { setTimeout(res, 800); }).then(function () { return kirim(body, 1); });
-      throw new Error(e.name === 'AbortError' ? 'Koneksi lambat — permintaan dibatalkan setelah 45 detik.' : (navigator.onLine === false ? 'Tidak ada koneksi internet.' : e.message || 'Gagal menghubungi server.'));
+      throw new Error(e.name === 'AbortError' ? 'Koneksi lambat — permintaan dibatalkan setelah 45 detik.' : navigator.onLine === false ? 'Tidak ada koneksi internet.' :
+        /failed to fetch|networkerror|load failed/i.test(e.message || '') ? 'Server Apps Script tidak memberi jawaban yang sah (Failed to fetch). Coba lagi; bila berulang, buka Apps Script → Eksekusi untuk melihat penyebabnya.' : e.message || 'Gagal menghubungi server.');
     }).finally(function () { clearTimeout(to); progres(-1); });
   }
   function flush() {

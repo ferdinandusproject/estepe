@@ -170,30 +170,78 @@
     render(null); muat();
   }
 
-  /* ---------- Migrasi ---------- */
+  /* ---------- Migrasi (proses latar di server, dipantau berkala) ---------- */
   function tabMigrasi(el) {
     el.innerHTML = kepala('Pindahkan data dari spreadsheet aplikasi lama (STP Minsel): sheet Laporan → Laporan_Detail + Laporan_Header, sheet Users → Users (sandi di-hash).') + App.tabBar('admin', 'migrasi') +
-      '<div class="card flex col g16"><div class="note soft fs12">' + ic('shield', 16) + '<div>Spreadsheet lama <b>hanya dibaca</b>. Kolom dicocokkan berdasarkan <b>nama header</b>. Proses idempoten: laporan/pengguna yang sudah ada dilewati, sehingga aman dijalankan ulang (delta-sync) sebelum peralihan. Jalankan <b>Pindai</b> dulu.</div></div>' +
-      '<label class="fld"><span>ID atau URL spreadsheet lama</span><input class="inp" id="mgId" placeholder="https://docs.google.com/spreadsheets/d/…/edit"><small>Harus berada di akun Google yang sama dengan pemilik skrip ESTEPEL.</small></label>' +
-      '<div class="flex wrap"><button class="btn btn-s" id="mgPindai">' + ic('search', 16) + 'Pindai (tanpa menulis)</button><button class="btn btn-p" id="mgJalan" disabled>' + ic('db', 16) + 'Jalankan Migrasi</button></div><div id="mgHasil"></div></div>';
-    function tampil(h) {
+      '<div class="card flex col g16"><div class="note soft fs12">' + ic('shield', 16) + '<div>Spreadsheet lama <b>hanya dibaca</b>. Kolom dicocokkan berdasarkan <b>nama header</b>. Proses idempoten: laporan/pengguna yang sudah ada dilewati, sehingga aman dijalankan ulang (delta-sync) sebelum peralihan. Proses berjalan <b>di latar server</b> — data besar tetap aman; halaman ini boleh ditinggal lalu dibuka lagi.</div></div>' +
+      '<label class="fld"><span>ID atau URL spreadsheet lama</span><input class="inp" id="mgId" placeholder="https://docs.google.com/spreadsheets/d/…/edit" autocomplete="off" spellcheck="false"><small>Harus berformat Google Sheets (bukan .xlsx) dan berada di akun Google yang sama dengan pemilik skrip ESTEPEL.</small></label>' +
+      '<div class="flex wrap"><button class="btn btn-s" id="mgPindai">' + ic('search', 16) + 'Pindai (tanpa menulis)</button><button class="btn btn-p" id="mgJalan" disabled>' + ic('db', 16) + 'Jalankan Migrasi</button></div><div id="mgProg"></div><div id="mgHasil"></div></div>';
+    var tmr = null, gagalNet = 0, berjalan = false, siapJalan = false;
+    $('#mgId').value = LS.get('mgId', '');
+    App.ikat(function () { clearTimeout(tmr); tmr = null; });
+    function tampil(h, waktu) {
       var L = h.laporan, U = h.users;
-      $('#mgHasil').innerHTML = '<div class="note ' + (h.dijalankan ? 'ok' : 'soft') + '">' + ic(h.dijalankan ? 'checkc' : 'info', 18) + '<div><b>' + (h.dijalankan ? 'Migrasi selesai' : 'Hasil pindai') + ' — "' + esc(h.sumber) + '"</b></div></div>' +
+      $('#mgHasil').innerHTML = '<div class="note ' + (h.dijalankan ? 'ok' : 'soft') + '">' + ic(h.dijalankan ? 'checkc' : 'info', 18) + '<div><b>' + (h.dijalankan ? 'Migrasi selesai' : 'Hasil pindai') + ' — "' + esc(h.sumber) + '"</b>' + (waktu ? ' <span class="mut">• ' + INTI.fmtTglJam(waktu) + '</span>' : '') + (!h.dijalankan && (h.laporan.laporanBaru || h.users.baru) ? '<br>Periksa angka di bawah. Bila sudah benar, klik <b>Jalankan Migrasi</b>.' : '') + '</div></div>' +
         '<div class="g4 mt12">' + UI.kpi({ tile: 't-vio', ikon: 'file', label: 'Baris sheet ' + (L.sheet || '-'), nilai: A(L.baris) }) + UI.kpi({ tile: 't-grn', ikon: 'plus', label: 'Laporan baru', nilai: A(L.laporanBaru), sub: A(L.detailBaru) + ' baris detail' }) + UI.kpi({ tile: 't-amb', ikon: 'minus', label: 'Dilewati (sudah ada)', nilai: A(L.dilewati) }) + UI.kpi({ tile: 't-blu', ikon: 'users', label: 'Pengguna baru', nilai: A(U.baru), sub: U.dilewati + ' dilewati' }) + '</div>' +
-        (L.unitTakDikenal.length || L.penyakitTakDikenal.length || L.periodeTakValid ? '<div class="note warn fs12 mt12">' + ic('alert', 16) + '<div>' + (L.unitTakDikenal.length ? '<b>Unit tidak dikenal:</b> ' + esc(L.unitTakDikenal.join(', ')) + '. ' : '') + (L.penyakitTakDikenal.length ? '<b>Penyakit tidak dikenal:</b> ' + esc(L.penyakitTakDikenal.join(', ')) + '. ' : '') + (L.periodeTakValid ? L.periodeTakValid + ' baris tanpa periode valid. ' : '') + 'Baris tersebut dilewati — samakan nama di Master Unit/Penyakit lalu pindai ulang.</div></div>' : '') +
+        (h.dijalankan && L.sisa ? '<div class="note warn fs12 mt12">' + ic('alert', 16) + '<div><b>' + A(L.sisa) + ' laporan belum sempat ditulis.</b> Klik <b>Pindai</b> lalu <b>Jalankan Migrasi</b> lagi untuk melanjutkan — data yang sudah masuk otomatis dilewati.</div></div>' : '') + (!L.sheet ? '<div class="note warn fs12 mt12">' + ic('alert', 16) + '<div>Sheet <b>Laporan</b> tidak ditemukan di spreadsheet lama (dicari: Laporan, Laporan_Detail, Data, Laporan_STP).</div></div>' : '') + (L.headerSumber || L.unitTakDikenal.length || L.penyakitTakDikenal.length || L.periodeTakValid ? '<div class="note warn fs12 mt12">' + ic('alert', 16) + '<div>' + (L.unitTakDikenal.length ? '<b>Unit tidak dikenal:</b> ' + esc(L.unitTakDikenal.join(', ')) + '. ' : '') + (L.penyakitTakDikenal.length ? '<b>Penyakit tidak dikenal:</b> ' + esc(L.penyakitTakDikenal.join(', ')) + '. ' : '') + (L.headerSumber ? '<b>Kolom penting tidak ditemukan</b> di sheet ' + esc(L.sheet) + '. Header yang terbaca: ' + esc(L.headerSumber.join(', ')) + '. ' : '') + (L.periodeTakValid ? L.periodeTakValid + ' baris tanpa periode valid. ' : '') + 'Baris tersebut dilewati — samakan nama di Master Unit/Penyakit lalu pindai ulang.</div></div>' : '') +
         '<div class="note soft fs12 mt12">' + ic('info', 16) + '<div>Ketepatan laporan lama dihitung dari timestamp lama dan ditandai <b>Historis</b>. Semua akun hasil migrasi wajib mengganti kata sandi saat login pertama.</div></div>';
     }
-    $('#mgPindai').onclick = function () {
-      var b = this; UI.sibuk(b, true, 'Memindai...');
-      API.wajib('admin.migrasi', { sumber: $('#mgId').value.trim(), jalankan: false }).then(function (j) { tampil(j.hasil); $('#mgJalan').disabled = !(j.hasil.laporan.laporanBaru || j.hasil.users.baru); }, function (e) { UI.toast(e.message, 'bad'); }).then(function () { UI.sibuk(b, false); });
-    };
+    function tombol() {
+      $('#mgPindai').disabled = berjalan;
+      $('#mgJalan').disabled = berjalan || !siapJalan;
+    }
+    function tampilProg(j) {
+      var dtk = Math.max(0, Math.round((App.now() - (j.dibuat || App.now())) / 1000));
+      $('#mgProg').innerHTML = '<div class="note info"><span class="spin" style="flex:none;margin-top:2px;border-color:rgba(29,78,216,.25);border-top-color:currentColor"></span><div style="flex:1;min-width:0"><b>' + (j.jalankan ? 'Memindahkan data' : 'Memindai') + ' "' + esc(j.namaSumber || '') + '"</b> • ' + dtk + ' detik<div class="fs12" style="margin:4px 0 8px">' + esc(j.tahap || '') + '</div>' + UI.bar(j.persen || 2, 'var(--info)') + '</div></div>';
+    }
+    function selesai(j) {
+      berjalan = false; $('#mgProg').innerHTML = '';
+      if (!j) { tombol(); return; }
+      if (j.status === 'selesai' && j.hasil) {
+        tampil(j.hasil, j.selesai);
+        siapJalan = !j.hasil.dijalankan && !!(j.hasil.laporan.laporanBaru || j.hasil.users.baru);
+        if (j.hasil.dijalankan) { Store.reset(); }
+      } else if (j.status === 'gagal') {
+        siapJalan = false;
+        $('#mgHasil').innerHTML = '<div class="note bad">' + ic('alert', 18) + '<div><b>' + (j.jalankan ? 'Migrasi' : 'Pindai') + ' gagal</b><br>' + esc(j.galat || 'Penyebab tidak diketahui.') + '</div></div>';
+      }
+      tombol();
+    }
+    function pantau(diam) {
+      clearTimeout(tmr);
+      API.call('admin.migrasi', { aksi: 'status' }).then(function (r) {
+        if (App.rute().tab !== 'migrasi') return;
+        gagalNet = 0;
+        if (!r.success) { berjalan = false; tombol(); if (!diam) UI.toast(r.message, 'bad'); return; }
+        var j = r.job;
+        if (j && (j.status === 'antre' || j.status === 'berjalan')) { berjalan = true; tombol(); tampilProg(j); tmr = setTimeout(pantau, 2500); return; }
+        var baruSelesai = berjalan;
+        selesai(j);
+        if (baruSelesai && j) UI.toast(j.status === 'selesai' ? (j.hasil.dijalankan ? 'Migrasi selesai.' : 'Pindai selesai.') : 'Proses gagal — lihat keterangan.', j.status === 'selesai' ? 'ok' : 'bad');
+      }, function (e) {
+        if (App.rute().tab !== 'migrasi') return;
+        if (berjalan && ++gagalNet < 6) { tmr = setTimeout(pantau, 4000); return; } // jaringan HP putus sesaat: tetap pantau
+        berjalan = false; tombol(); UI.toast(e.message, 'bad');
+      });
+    }
+    function mulai(jalankan, b) {
+      var id = $('#mgId').value.trim();
+      if (!id) { UI.toast('Tempel dulu ID atau URL spreadsheet lama.', 'warn'); $('#mgId').focus(); return; }
+      LS.set('mgId', id);
+      berjalan = true; siapJalan = false; tombol(); UI.sibuk(b, true, 'Memulai...'); $('#mgHasil').innerHTML = '';
+      API.wajib('admin.migrasi', { aksi: 'mulai', sumber: id, jalankan: jalankan }).then(function (r) {
+        UI.sibuk(b, false); tombol(); tampilProg(r.job); tmr = setTimeout(pantau, 1500);
+      }, function (e) {
+        UI.sibuk(b, false); berjalan = false; tombol();
+        $('#mgHasil').innerHTML = '<div class="note bad">' + ic('alert', 18) + '<div>' + esc(e.message) + '</div></div>';
+      });
+    }
+    $('#mgPindai').onclick = function () { mulai(false, this); };
     $('#mgJalan').onclick = function () {
       var b = this;
-      UI.konfirmasi({ judul: 'Jalankan migrasi', ikon: 'db', pesan: 'Tulis data hasil pindai ke database ESTEPEL? Data yang sudah ada tidak ditimpa.', ya: 'Jalankan' }).then(function (ok) {
-        if (!ok) return; UI.sibuk(b, true, 'Memindahkan...');
-        API.wajib('admin.migrasi', { sumber: $('#mgId').value.trim(), jalankan: true }).then(function (j) { tampil(j.hasil); UI.toast(j.message); Store.reset(); b.disabled = true; }, function (e) { UI.toast(e.message, 'bad'); }).then(function () { UI.sibuk(b, false); });
-      });
+      UI.konfirmasi({ judul: 'Jalankan migrasi', ikon: 'db', pesan: 'Tulis data hasil pindai ke database ESTEPEL? Data yang sudah ada tidak ditimpa. Proses berjalan di latar server dan bisa memakan beberapa menit untuk data besar.', ya: 'Jalankan' }).then(function (ok) { if (ok) mulai(true, b); });
     };
+    pantau(true); // lanjutkan memantau bila ada proses berjalan, atau tampilkan hasil terakhir
   }
 
   Hal.admin = function (el, r) {
